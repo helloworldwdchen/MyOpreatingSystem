@@ -415,3 +415,230 @@ for(;;){
 因为鼠标往往会比键盘更快地送出大量数据，所以我们将它的FIFO缓冲区增加到了128字节  
 
 # 4 鼠标控制
+
+-   鼠标解读（1）
+
+现在紧要的问题是解读这些数据，搞清楚鼠标是怎么移动的，然后结合鼠标的动作，让鼠标指针相应的动起来。
+
+修改下主函数
+
+```c
+unsigned char mouse_dbuf[3], mouse_phase;
+for(;;){
+		io_cli();
+		if(fifo8_status(&keyfifo) + fifo8_status(&mousefifo) == 0){
+			io_stihlt();
+		}
+		else{
+			 if(fifo8_status(&keyfifo)!=0){
+				i = fifo8_get(&keyfifo);
+				io_sti();
+				sprintf(s, "%02X", i);
+				boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 0, 16, 15, 31);
+				putfonts8_asc(binfo->vram, binfo->scrnx, 0, 16, COL8_FFFFFF, s);
+			 }
+			 else if(fifo8_status(&mousefifo) != 0){
+			 	i = fifo8_get(&mousefifo);
+				io_sti();
+				if(mouse_phase == 0){
+					if(i == 0xfa){			/* 等待鼠标的0xfa的状态 */
+						mouse_phase = 1;
+					}
+				}
+				else if(mouse_phase == 1){	/* 等待鼠标的第一字节 */
+					mouse_dbuf[0] = i;
+					mouse_phase = 2;
+				}
+				else if(mouse_phase == 2){	/* 等待鼠标的第二字节 */
+
+					mouse_dbuf[1] = i;
+					mouse_phase = 3;
+				}
+				else if(mouse_phase == 3){	/* 等待鼠标的第三字节 */
+					mouse_dbuf[2] = i;
+					mouse_phase = 1;
+					sprintf(s, "%02X %02X %02X", mouse_dbuf[0], mouse_dbuf[1], mouse_dbuf[2]);
+					boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 32, 16, 32+8*8-1, 31);
+					putfonts8_asc(binfo->vram, binfo->scrnx, 32, 16, COL8_FFFFFF, s);
+				}
+			 }
+		}
+	}
+```
+
+整理下主函数，将鼠标信息解读的部分封装成函数
+
+```c
+for(;;){
+		io_cli();
+		if(fifo8_status(&keyfifo) + fifo8_status(&mousefifo) == 0){
+			io_stihlt();
+		}
+		else{
+			 if(fifo8_status(&keyfifo)!=0){
+				i = fifo8_get(&keyfifo);
+				io_sti();
+				sprintf(s, "%02X", i);
+				boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 0, 16, 15, 31);
+				putfonts8_asc(binfo->vram, binfo->scrnx, 0, 16, COL8_FFFFFF, s);
+			 }
+			 else if(fifo8_status(&mousefifo) != 0){
+			 	i = fifo8_get(&mousefifo);
+				io_sti();
+				if(mouse_decode(&mdec, i)!=0){
+					sprintf(s, "%02X %02X %02X", mdec.buf[0], mdec.buf[1], mdec.buf[2]);
+					boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 32, 16, 32+8*8-1, 31);
+					putfonts8_asc(binfo->vram, binfo->scrnx, 32, 16, COL8_FFFFFF, s);
+				}
+			 }
+		}
+	}
+	
+	
+void enable_mouse(struct MOUSE_DEC *mdec){
+	wait_KBC_sendready();
+	io_out8(PORT_KEYCMD, KEYCMD_SENDTO_MOUSE);
+	wait_KBC_sendready();
+	io_out8(PORT_KEYDAT, MOUSECMD_ENABLE);
+	mdec->phase = 0;
+	return ;
+}
+
+int mouse_decode(struct MOUSE_DEC *mdec, unsigned char dat){
+	if(mdec->phase == 0){
+		if(dat == 0xfa){
+			mdec->phase = 1;
+		}
+		return 0;
+	}
+	if(mdec->phase == 1){
+		mdec->buf[0] = dat;
+		mdec->phase = 2;
+		return 0;
+	}
+	if(mdec->phase == 2){
+		mdec->buf[1] = dat;
+		mdec->phase = 3;
+		return 0;
+	}
+	if(mdec->phase == 3){
+		mdec->buf[2] = dat;
+		mdec->phase = 1;
+		return 1;
+	}
+	return -1;
+}
+```
+
+-   鼠标解读（2）
+
+修改mouse_decode函数
+
+```c
+int mouse_decode(struct MOUSE_DEC *mdec, unsigned char dat){
+	if(mdec->phase == 0){
+		if(dat == 0xfa){
+			mdec->phase = 1;
+		}
+		return 0;
+	}
+	if(mdec->phase == 1){
+		mdec->buf[0] = dat;
+		mdec->phase = 2;
+		return 0;
+	}
+	if(mdec->phase == 2){
+		mdec->buf[1] = dat;
+		mdec->phase = 3;
+		return 0;
+	}
+	if(mdec->phase == 3){
+		mdec->buf[2] = dat;
+		mdec->phase = 1;
+		mdec->btn = mdec->buf[0]&0x07;
+		mdec->x = mdec->buf[1];
+
+		mdec->y = mdec->buf[2];
+		if((mdec->buf[0]&0x10)!=0){
+			mdec->x |= 0xffffff00;
+		}
+		if((mdec->buf[0]&0x20)!=0){
+			mdec->y |= 0xffffff00;
+		}
+		mdec->y = -mdec->y;
+		return 1;
+	}
+	return -1;
+}
+```
+
+结构体里增加的几个变量用于存放解读结果。这几个变量是x、 y和btn，分别用于存放移动
+信息和鼠标按键状态  
+
+最后的if（ mdec>phase==3）部分，是解读处理的核心。鼠标键的状态，放在buf[0]的低3位，
+我们只取出这3位。十六进制的0x07相当于二进制的0000 0111，因此通过与运算（ &），可以很顺
+利地取出低3位的值  
+
+x和y，基本上是直接使用buf[1]和buf[2] ，但是需要使用第一字节中对鼠标移动有反应的几
+位（参考第一节的叙述）信息，将x和y的第8位及第8位以后全部都设成1，或全部都保留为0。这
+样就能正确地解读x和y。  
+
+修改一下显示部分
+
+```c
+else if(fifo8_status(&mousefifo) != 0){
+			 	i = fifo8_get(&mousefifo);
+				io_sti();
+				if(mouse_decode(&mdec, i)!=0){
+					sprintf(s,"[lcr %4d %4d]", mdec.x, mdec.y);
+					if((mdec.btn&0x01)!=0){
+						s[1] = 'L';
+					}
+					if((mdec.btn&0x02)!=0){
+						s[3] = 'R';
+					}
+					if((mdec.btn&0x04)!=0){
+						s[2] = 'C';
+					}
+					boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 32, 16, 32+15*8-1, 31);
+					putfonts8_asc(binfo->vram, binfo->scrnx, 32, 16, COL8_FFFFFF, s);
+				}
+			 }
+```
+
+至此解读部分完成
+
+接下来修改图形显示部分，让鼠标动起来。
+
+```c
+else if(fifo8_status(&mousefifo) != 0){
+			 	i = fifo8_get(&mousefifo);
+				io_sti();
+				if(mouse_decode(&mdec, i)!=0){
+					sprintf(s,"[lcr %4d %4d]", mdec.x, mdec.y);
+					if((mdec.btn&0x01)!=0){
+						s[1] = 'L';
+					}
+					if((mdec.btn&0x02)!=0){
+						s[3] = 'R';
+					}
+					if((mdec.btn&0x04)!=0){
+						s[2] = 'C';
+					}
+					boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 32, 16, 32+15*8-1, 31);
+					putfonts8_asc(binfo->vram, binfo->scrnx, 32, 16, COL8_FFFFFF, s);
+					/* 鼠标指针的移动*/
+					boxfill8(binfo->vram, binfo->scrnx, COL8_008484, mx, my, mx+15, my+15);/* 隐藏鼠标*/
+					mx += mdec.x;
+					my += mdec.y;
+					if(mx<0)mx = 0;
+					if(my<0)my = 0;
+					if(mx>binfo->scrnx-16)mx = binfo->scrnx-16;
+					if(my>binfo->scrny-16)my = binfo->scrny-16;
+					sprintf(s, "(%3d, %3d)", mx, my);
+					boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 0, 0, 79, 15); /* 隐藏坐标 */
+					putfonts8_asc(binfo->vram, binfo->scrnx, 0, 0, COL8_FFFFFF, s); /* 显示坐标 */
+					putblock8_8(binfo->vram, binfo->scrnx, 16, 16, mx, my, mcursor, 16); /* 描画鼠标 */
+				}	
+```
+
