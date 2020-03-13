@@ -32,7 +32,7 @@
 		
 ; 信息显示部分
 		DB 0x0a, 0x0a		; 2个换行
-		DB "hello, wangdonghui"
+		DB "hello, world!"
 		DB 0x0a				; 换行
 		DB 0
 		
