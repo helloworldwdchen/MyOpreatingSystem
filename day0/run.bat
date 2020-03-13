@@ -1,0 +1,2 @@
+copy helloos.img C:\Myproject\MyOperatingSystem\OSAKS\tolset\z_tools\qemu\fdimage0.bin
+C:\Myproject\MyOperatingSystem\OSAKS\tolset\z_tools\make.exe	-C C:\Myproject\MyOperatingSystem\OSAKS\tolset\z_tools/qemu
