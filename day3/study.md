@@ -295,3 +295,65 @@ for(;;){
 ```
 
 最后记得修改Makefile，加入fifo.obj
+
+# 3 鼠标
+
+为了使用鼠标，必须让鼠标控制电路和鼠标本身有效，要先让鼠标控制电路有效，再让鼠标有效。
+
+现在说说控制电路的设定。事实上，鼠标控制电路包含在键盘控制电路里，如果键盘控制电路的初始化正常完成，鼠标电路控制器的激活也就完成了。
+
+修改bootpack.c
+
+```c
+
+void enable_mouse(void);
+void init_keyboard(void);
+
+#define PORT_KEYDAT 0x0060
+#define PORT_KEYSTA 0x0064
+#define PORT_KEYCMD 0x0064
+#define KEYSTA_SEND_NOTREADY 0x02
+#define KEYCMD_WRITE_MODE 0x60
+#define KBC_MODE 0x47
+
+void wait_KBC_sendready(void){
+	for(;;){
+		if((io_in8(PORT_KEYSTA)&KEYSTA_SEND_NOTREADY)==0)break;
+	}
+	return ;
+}
+
+void init_keyboard(void){
+	wait_KBC_sendready();
+	io_out8(PORT_KEYCMD, KEYCMD_WRITE_MODE);
+	wait_KBC_sendready();
+	io_out8(PORT_KEYDAT, KBC_MODE);
+	return ;
+}
+
+#define KEYCMD_SENDTO_MOUSE		0xd4
+#define MOUSECMD_ENABLE			0xf4
+
+void enable_mouse(void){
+	wait_KBC_sendready();
+	io_out8(PORT_KEYCMD, KEYCMD_SENDTO_MOUSE);
+	wait_KBC_sendready();
+	io_out8(PORT_KEYDAT, MOUSECMD_ENABLE);
+}
+```
+
+wait_KBC_sendready的作用是，让键盘控制电路（ keyboard controller,KBC）做好准备动作，等待控制指令的到来。为什么要做这个工作呢？是因为虽然CPU的电路很快，但键盘控制电路却没有那么快。如果CPU不顾设备接收数据的能力，只是一个劲儿地发指令的话，有些指令会得不到执行，从而导致错误的结果 。
+
+如果键盘控制电路可以接受CPU指令了，CPU从设备号码0x0064处所读取的数据的倒数第二位（从低位开始数的第二位）应该是0。在确认到这一位是0之前，程序一直通过for语句循环查询 。
+
+init_keyboard。它所要完成的工作很简单，也就是一边确认可否往键盘控制电路传送信息，一边发送模式设定指令，指令中包含着要设定为何种模式。模式设定的指令是0x60，利用鼠标模式的模式号码是0x47，当然这些数值必须通过调查才能知道。我们可以从http://community.osdev.info/?ifno得到这些数据
+
+在HariMain函数调用init_keyboard函数，鼠标控制电路的准备就完成了  
+
+我们开始发送激活鼠标的指令。所谓发送鼠标激活指令，归根到底还是要向键盘控制器发送指令  
+
+enable_mouse  与init_keyboard函数非常相似。不同点仅在于写入的数据不同。如果往键盘控制电
+路发送指令0xd4，下一个数据就会自动发送给鼠标。我们根据这一特性来发送激活鼠标的指令  
+
+鼠标收到激活指令后， 给CPU发送信息：从现在开始就要不停地发送鼠标信息 ，这个信息就是0xfa  
+
