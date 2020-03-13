@@ -296,7 +296,9 @@ for(;;){
 
 最后记得修改Makefile，加入fifo.obj
 
-# 3 鼠标
+# 3 增加鼠标中断
+
+-   增加鼠标中断
 
 为了使用鼠标，必须让鼠标控制电路和鼠标本身有效，要先让鼠标控制电路有效，再让鼠标有效。
 
@@ -357,3 +359,57 @@ enable_mouse  与init_keyboard函数非常相似。不同点仅在于写入的�
 
 鼠标收到激活指令后， 给CPU发送信息：从现在开始就要不停地发送鼠标信息 ，这个信息就是0xfa  
 
+-   从鼠标接受数据
+
+现在取出中断信息
+
+修改int.c 中鼠标中断的部分
+
+```c
+struct FIFO8 mousefifo;
+
+void inthandler2c(int *esp){ /* 来自PS/2鼠标的中断*/
+	unsigned char data;
+	io_out8(PIC1_OCW2, 0x64);
+	io_out8(PIC0_OCW2, 0x62);
+	data = io_out8(PORT_KEYDAT);
+	fifo8_put(&mousefifo, data);
+	return ;
+}
+```
+
+与键盘中断的不同之处只有送给PIC的中断受理通知。 IRQ-12是从PIC的第4号（从PIC相当于IRQ-08～
+IRQ-15），首先要通知IRQ-12受理已完成，然后再通知主PIC。这是因为主/从PIC的协调不能够自动完成，如果程序不教给主PIC该怎么做，它就会忽视从PIC的下一个中断请求。从PIC连接到主PIC的第2号上，这么做OK  
+
+下面写鼠标数据的取得方法，与键盘的完全相同，也许是因为键盘控制电路中含有鼠标控制电路，才造成了这种结果。至于传到这个设备的数据，究竟是来自键盘还是鼠标，要靠中断号码来区分  。
+
+修改bootpack.c
+
+```c
+fifo8_init(&mousefifo, 128, mousebuf);
+
+for(;;){
+		io_cli();
+		if(fifo8_status(&keyfifo) + fifo8_status(&mousefifo) == 0){
+			io_stihlt();
+		}
+		else{
+			 if(fifo8_status(&keyfifo)!=0){
+				i = fifo8_get(&keyfifo);
+				io_sti();
+				sprintf(s, "%02X", i);
+				boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 0, 16, 15, 31);
+				putfonts8_asc(binfo->vram, binfo->scrnx, 0, 16, COL8_FFFFFF, s);
+			 }
+			 else if(fifo8_status(&mousefifo) != 0){
+			 	i = fifo8_get(&mousefifo);
+				io_sti();
+				sprintf(s, "%02X", i);
+				boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 32, 16, 47, 31);
+				putfonts8_asc(binfo->vram, binfo->scrnx, 32, 16, COL8_FFFFFF, s);
+			 }
+		}
+	}
+```
+
+因为鼠标往往会比键盘更快地送出大量数据，所以我们将它的FIFO缓冲区增加到了128字节  
