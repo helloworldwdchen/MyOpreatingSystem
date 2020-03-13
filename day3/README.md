@@ -587,23 +587,23 @@ x和y，基本上是直接使用buf[1]和buf[2] ，但是需要使用第一字�
 
 ```c
 else if(fifo8_status(&mousefifo) != 0){
-			 	i = fifo8_get(&mousefifo);
-				io_sti();
-				if(mouse_decode(&mdec, i)!=0){
-					sprintf(s,"[lcr %4d %4d]", mdec.x, mdec.y);
-					if((mdec.btn&0x01)!=0){
-						s[1] = 'L';
-					}
-					if((mdec.btn&0x02)!=0){
-						s[3] = 'R';
-					}
-					if((mdec.btn&0x04)!=0){
-						s[2] = 'C';
-					}
-					boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 32, 16, 32+15*8-1, 31);
-					putfonts8_asc(binfo->vram, binfo->scrnx, 32, 16, COL8_FFFFFF, s);
-				}
-			 }
+		i = fifo8_get(&mousefifo);
+		io_sti();
+		if(mouse_decode(&mdec, i)!=0){
+		sprintf(s,"[lcr %4d %4d]", mdec.x, mdec.y);
+		if((mdec.btn&0x01)!=0){
+			s[1] = 'L';
+		}
+		if((mdec.btn&0x02)!=0){
+			s[3] = 'R';
+		}
+		if((mdec.btn&0x04)!=0){
+			s[2] = 'C';
+		}
+		boxfill8(binfo->vram, binfo->scrnx, COL8_008484, 32, 16, 32+15*8-1, 31);
+		putfonts8_asc(binfo->vram, binfo->scrnx, 32, 16, COL8_FFFFFF, s);
+		}
+}
 ```
 
 至此解读部分完成
