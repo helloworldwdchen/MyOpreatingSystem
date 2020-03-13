@@ -1,5 +1,5 @@
 OBJS_BOOTPACK = bootpack.obj naskfunc.obj hankaku.obj graphic.obj dsctbl.obj \
-		int.obj fifo.obj
+		int.obj fifo.obj keyboard.obj mouse.obj
 
 TOOLPATH = C:/Myproject/MyOperatingSystem/OSAKS/tolset/z_tools/
 INCPATH  = C:/Myproject/MyOperatingSystem/OSAKS/tolset/z_tools/haribote/
