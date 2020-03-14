@@ -1,10 +1,12 @@
-# 1 整理源文件
+# 1 整理源文件 与解释asmhead.nas
+
+-   整理源文件
 
 新建mouse.c 和keyboard.c ，将鼠标键盘中断的函数从主函数和init.c中取出来
 
 在MakeFile里添加两个文件的.obj
 
-# 2 解释asmhead.nas
+-   解释asmhead.nas
 
 -   开始做的事情
 
@@ -291,3 +293,140 @@ set_segmdesc(gdt + 2, LIMIT_BOTPAK, ADR_BOTPAK, AR_CODE32_ER);
 
 因此，在bootpack.c的HariMain里，应该在进行调色板（ palette）的初始化以及画面的准备之
 前，先赶紧重新创建GDT和IDT，初始化PIC，并执行“io_sti();”。  
+
+# 2. 内存管理
+
+1.   内容容量检查
+
+现在我们要进行内存管理了。首先必须要做的事情，是搞清楚内存究竟有多大，范围是到哪里。如果连这一点都搞不清楚的话，内存管理就无从谈起。
+在最初启动时， BIOS肯定要检查内存容量，所以只要我们问一问BIOS，就能知道内存容量有多大。但问题是，如果那样做的话，一方面asmhead.nas会变长，另一方面， BIOS版本不同， BIOS函数的调用方法也不相同，麻烦事太多了。所以，笔者想与其如此，不如自己去检查内存。  
+
+首先，暂时让486以后的CPU的高速缓存（ cache）功能无效。回忆一下最初讲的CPU与内存的关系吧。我们说过，内存与CPU的距离地与CPU内部元件要远得多，因此在寄存器内部MOV，要比从寄存器MOV到内存快得多。但另一方面，有一个问题， CPU的记忆力太差了，即使知道内存的速度不行，还不得不频繁使用内存  
+
+考虑到这个问题，英特尔的大叔们在CPU里也加进了一点存储器，它被称为高速缓冲存储器（ cache memory）。 cache这个词原是指储存粮食弹药等物资的仓库。但是能够跟得上CPU速度的高速存储器价格特别高，一个芯片就有一个CPU那么贵。如果128MB内存全部都用这种高价存储器，预算上肯定受不了。高速缓存，容量只有这个数值的千分之一，也就是128KB左右。高级CPU，也许能有1MB高速缓存，但即便这样，也不过就是128MB的百分之一。  
+
+每次访问内存，都要将所访问的地址和内容存入到高速缓存里。也就是存放成这样： 18号地址的值是54。如果下次再要用18号地址的内容， CPU就不再读内存了，而是使用高速缓存的信息，马上就能回答出18号地址的内容是54  
+
+往内存里写入数据时也一样，首先更新高速缓存的信息，然后再写入内存。如果先写入内存的话，在等待写入完成的期间， CPU处于空闲状态，这样就会影响速度。所以，先更新缓存，缓存控制电路配合内存的速度，然后再慢慢发送内存写入命令  
+
+观察机器语言的流程会发现， 9成以上的时间耗费在循环上。所谓循环，是指程序在同一个地方来回打转。所以，那个地方的内存要一遍又一遍读进来。从第2圈循环开始，那个地方的内存信息已经保存到缓存里了，就不需要执行费时的读取内存操作了，机器语言的执行速度因而得
+以大幅提高  
+
+另外，就算是变量，也会有像“for(i = 0; i < 100; i++){}”这样， i频繁地被引用，被赋值的情况，最初是０，紧接着是１，下一个就是２。也就是说，要往内存的同一个地址，一次又一次写入不同的值。缓存控制电路观察会这一特性，在写入值不断变化的时候，试图不写入缓慢的内存，而是尽量在缓存内处理。循环处理完成，最终i的值变成100以后，才发送内存写入命令。这样，就省略了99次内存写入命令， CPU几乎不用等就能连续执行机器语言  
+
+内存检查时，要往内存里随便写入一个值，然后马上读取，来检查读取的值与写入的值是否相等。如果内存连接正常，则写入的值能够记在内存里。如果没连接上，则读出的值肯定是乱七八糟的。方法很简单。但是，如果CPU里加上了缓存会怎么样呢？写入和读出的不是内存，而是缓存。结果，所有的内存都“正常”，检查处理不能完成  
+
+所以，只有在内存检查时才将缓存设为OFF。具体来说，就是先查查CPU是不是在486以上，如果是，就将缓存设为OFF。按照这一思路，我们创建了以下函数memtest  
+
+```c
+
+#define EFLAGS_AC_BIT		0x00040000
+#define CR0_CACHE_DISABLE	0x60000000
+
+unsigned int memtest(unsigned int start, unsigned int end){
+	char flg486 = 0;
+	unsigned int eflg, cr0, i;
+
+	/* 确认CPU是386还是486以上的 */
+	eflg  = io_load_eflags();
+	eflg |= EFLAGS_AC_BIT; 		/* AC-bit = 1 */
+	io_store_eflags(eflg);
+	eflg = io_load_eflags();
+	if((eflg&EFLAGS_AC_BIT)!=0){	/* 如果是386，即使设定AC=1， AC的值还会自动回到0 */
+		flg486 = 1;
+	}
+	eflg &= ~EFLAGS_AC_BIT;		/* AC-bit = 0 */
+	io_store_eflags(eflg);
+
+	if(flg486!=0){
+		cr0 = load_cr0();
+		cr0 |= CR0_CACHE_DISABLE;		/* 禁止缓存 */
+		store_cr0(cr0);
+	}
+
+	i = memtest_sub(start, end);
+
+	if(flg486 != 0){
+		cr0 = load_cr0();
+		cr0 &= ~CR0_CACHE_DISABLE;		 /* 允许缓存 */
+		store_cr0(cr0);
+	}
+
+	return i;
+}
+```
+
+为了禁止缓存，需要对CR0寄存器的某一标志位进行操作。对哪里操作，怎么操作，大家一看程序就能明白。这时，需要用到函数load_cr0和store_cr0，与之前的情况一样，这两个函数不能用C语言写，只能用汇编语言来写，存在naskfunc.nas里  
+
+修改naskfunc.nas
+
+```
+_load_cr0:		; int load_cr0(void);
+		MOV		EAX, CR0
+		RET
+
+_store_cr0:		; void store_cr0(int cr0);
+		MOV 	EAX, [ESP+4]
+		MOV		CR0, EAX
+		RET
+```
+
+memtest_sub函数，是内存检查处理的实现部分  
+
+调查从start地址到end地址的范围内，能够使用的内存的末尾地址。要做的事情很简单。首先如果p不是指针，就不能指定地址去读取内存，所以先执行“p=i;”。紧接着使用这个p，将原值保存下来（变量old）。接着试写0xaa55aa55，在内存里反转该值，检查结果是否正确①。如果正确，就再次反转它，检查一下是否能回复到初始值。最后，使用old变量，将内存的值恢复回去。……如果在某个环节没能恢复成预想的值，那么就在那个环节终止调查，并报告终止时的地址。  
+
+i 每次增加0x1000，相当于4KB，这样一来速度比较快。 p的赋值计算式“p=i + 0xffc;”，让它只检查末尾的4个字节  
+
+```c
+unsigned int memtest_sub(unsigned int start, unsigned int end){
+	unsigned int i, *p, old, pat0 = 0xaa55aa55, pat1 = 0x55aa55aa;
+	for(i = start;i<=end;i+=0x1000){
+		p = (unsigned int *)(i+0xffc);
+		old = *p;
+		*p = pat0;
+		*p ^= 0xffffffff;
+		if(*p != pat1){
+not_memory:
+			*p = old;
+			break;
+		}
+		*p ^= 0xffffffff;
+		if(*p!=pat0){
+			goto not_memory;
+		}
+		*p = old;
+	}
+	return i;
+}
+```
+
+再加上主函数
+
+```c
+i = memset(0x00400000, 0xbfffffff) / (1024*1024);
+	sprintf(s, "memory %dMB", i);
+	putfonts8_asc(binfo->vram, binfo->scrnx, 0, 32, COL8_FFFFFF, s);
+```
+
+
+
+结果运行后 显示memory有3072MB，也就是3G，然而实际上内存是32MB
+
+原因是编译器在运行时优化掉了*p反转的过程，经过优化后程序变成了
+
+```c
+unsigned int memtest_sub(unsigned int start, unsigned int end)
+{
+	unsigned int i;
+	for (i = start; i <= end; i += 0x1000) { }
+	return i;
+}
+```
+
+用于应用程序的C编译器，根本想不到会对没有内存的地方进行读写。  
+
+于是决定memtest_sub也用汇编来写算了  
+
+代码见naskfunc.nas
+
+内存显示正常，可以回到内存管理这个正题上了
