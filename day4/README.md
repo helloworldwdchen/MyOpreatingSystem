@@ -429,4 +429,43 @@ unsigned int memtest_sub(unsigned int start, unsigned int end)
 
 代码见naskfunc.nas
 
-内存显示正常，可以回到内存管理这个正题上了
+-   内存显示正常，可以回到内存管理这个正题上了
+
+什么是内存管理呢？为什么要进
+行内存管理呢?  
+
+比如说，假设内存大小是128MB，应用程序A暂时需要100KB，画面控制需要1.2MB……，像这样，操作系统在工作中，有时需要分配一定大小的内存，用完以后又不再需要，这种事会频繁发生。为了应付这些需求，必须恰当管理好哪些内存可以使用（哪些内存空闲），哪些内存不可以使用（正在使用），这就是内存管理。如果不进行管理，系统会变得一塌糊涂，要么不知道哪里可用，要么多个应用程序使用同一地址的内存  
+
+内存管理的基础，一是内存分配，一是内存释放。“现在要启动应用程序B了，需要84KB内存，哪儿空着呢？”如果问内存管理程序这么一个问题，内存管理程序就会给出一个能够自由使用的84KB的内存地址，这就是内存分配。另一方面，“内存使用完了，现在把内存归还给内存管理程序”，这一过程就是内存的释放过程  
+
+我们用结构体数组来记录管理内存的信息
+
+具体代码见bootpack.c
+
+-   整理
+
+将有关内存管理的部分整理出来，创建memory.c
+
+当然也要修改Makefile和bootpack.h
+
+为了以后使用起来更加方便，我们还是把这些内存管理函数再整理一下。 memman_alloc和memman_free能够以1字节为单位进行内存管理，这种方式虽然不错，但是有一点不足——在反复进行内存分配和内存释放之后，内存中就会出现很多不连续的小段未使用空间，这样就会把man->frees消耗殆尽  
+
+因此，我们要编写一些总是以0x1000字节为单位进行内存分配和释放的函数，它们会把指定的内存大小按0x1000字节为单位向上舍入（ roundup），而之所以要以0x1000字节为单位，是因为笔者觉得这个数比较规整。另外， 0x1000字节的大小正好是4KB  
+
+```c
+unsigned int memman_alloc_4k(struct MEMMAN *man, unsigned int size){
+	unsigned int a;
+	size = (size+0xfff)&0xfffff000;
+	a = memman_alloc(man, size);
+	return a;
+}
+
+int memman_free_4k(struct MEMMAN *man, unsigned int addr, unsigned int size){
+	int i;
+	size = (size+0xfff)&0xfffff000;
+	i = memman_free(man, addr, size);
+	return i;
+}
+```
+
+精髓是向上舍入
