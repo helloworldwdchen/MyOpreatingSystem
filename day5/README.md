@@ -206,3 +206,78 @@ void sheet_free(struct SHTCTL *ctl, struct SHEET *sht){
 
 然后就要改造主函数了
 
+详见主函数
+
+### 提高画面叠加处理的速度
+
+鼠标指针虽然最多只有16×16=256个像素，可根据harib07b的原理，只要它稍一移动，程序
+就会对整个画面进行刷新，也就是重新描绘320×200=64 000个像素。而实际上，只重新描绘移动 相关的部分，也就是移动前后的部分就可以了，即256×2=512个像素。这只是64 000像素的0.8% 而已，所以有望提速很多。现在我们根据这个思路写一下程序
+
+```c
+
+void sheet_refreshsub(struct SHTCTL *ctl, int vx0, int vy0, int vx1, int vy1){
+	int h, bx, by, vx, vy;
+	unsigned char *buf, c, *vram = ctl->vram;
+	struct SHEET *sht;
+	for(h=0; h<=ctl->top; h++){
+		sht = ctl->sheets[h];
+		buf = sht->buf;
+		for(by = 0; by<sht->bysize; by++){
+			vy = sht->vy0+by;
+			for(bx=0; bx<sht->bxsize; bx++){
+				vx = sht->vx0+bx;
+				if(vx0<=vx&&vx<vx1&&vy0<=vy&&vy<vy1){
+					c = buf[by*sht->bxsize+bx];
+					if(c!=sht->col_inv){
+						vram[vy*ctl->xsize+vx] = c;
+					}
+				}
+			}
+		}
+	}
+	return ;
+}
+```
+
+然后改写sheet_slide
+
+```c
+void sheet_slide(struct SHTCTL *ctl, struct SHEET *sht, int vx0, int vy0){
+	int old_vx0 = sht->vx0, old_vy0 = sht->vy0;
+	sht->vx0 = vx0;
+	sht->vy0 = vy0;
+	if(sht->height>=0){	/* 如果正在显示，则按新图层的信息刷新画面 */
+		sheet_refreshsub(ctl, old_vx0, old_vy0, old_vx0 + sht->bxsize, old_vy0 + sht->bysize);
+		sheet_refreshsub(ctl, vx0, vy0, vx0 + sht->bxsize, vy0 + sht->bysize);
+	}
+	return ;
+}
+
+```
+
+估计大家会认为“这次鼠标的移动就快了吧”，但移动鼠标时，由于要在画面上显示坐标等信息，结果又执行了sheet_refresh程序，所以还是很慢。为了不浪费我们付出的各种努力，下面 我们就来解决一下图层内文字显示的问题
+
+我们所说的在图层上显示文字，实际上并不是改写图层的全部内容。假设我们已经写了20个字，那么8×16×20=2560，也就是仅仅重写2560个像素的内容就应该足够了。但现在每次却要 重写64 000个像素的内容，所以速度才那么慢
+
+这么说来，这里好像也可以使用refreshsub，那么我们就来重新编写函数sheet_refresh吧
+
+所谓指定范围，并不是直接指定画面内的坐标，而是以缓冲区内的坐标来表示。这样一来， HariMain就可以不考虑图层在画面中的位置了。
+
+我们改动了refresh，所以也要相应改造updown。做了改动的只有sheet_refresh（ctl）这部分
+（有两处），修改后的程序如下
+
+```c
+sheet_refreshsub(ctl, sht->vx0, sht->vy0, sht->vx0 + sht->bxsize, sht->vy0 + sht->bysize);
+```
+
+最后还要改写HariMain。
+
+这里我们仅仅改写了sheet_refresh，变更点共有4个。只有每次要往buf_back中写入信息时， 才进行sheet_refresh。
+
+-   再次提高叠加处理速度
+
+然而refreshsub还是不够快
+
+即使不写入像素内容，也要多次执行if语句，这一点不太好，如果能改善一 下，速度应该会提高不少
+
+按照上面这种写法，即便只刷新图层的一部分，也要对所有图层的全部像素执行if语句，判断“是写入呢，还是不写呢”。而对于刷新范围以外的部分，就算执行if判断语句，最后也不会进 行刷新，所以这纯粹就是一种浪费。既然如此，我们最初就应该把for语句的范围限定在刷新范围 之内
