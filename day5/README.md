@@ -281,3 +281,47 @@ sheet_refreshsub(ctl, sht->vx0, sht->vy0, sht->vx0 + sht->bxsize, sht->vy0 + sht
 即使不写入像素内容，也要多次执行if语句，这一点不太好，如果能改善一 下，速度应该会提高不少
 
 按照上面这种写法，即便只刷新图层的一部分，也要对所有图层的全部像素执行if语句，判断“是写入呢，还是不写呢”。而对于刷新范围以外的部分，就算执行if判断语句，最后也不会进 行刷新，所以这纯粹就是一种浪费。既然如此，我们最初就应该把for语句的范围限定在刷新范围 之内
+
+```c
+void sheet_refreshsub(struct SHTCTL *ctl, int vx0, int vy0, int vx1, int vy1){
+	int h, bx, by, vx, vy, bx0, by0, bx1, by1;
+	unsigned char *buf, c, *vram = ctl->vram;
+	struct SHEET *sht;
+	for(h=0; h<=ctl->top; h++){
+		sht = ctl->sheets[h];
+		buf = sht->buf;
+		/* 使用vx0～vy1，对bx0～by1进行倒推 */
+		bx0 = vx0 - sht->vx0;
+		by0 = vy0 - sht->vy0;
+		bx1 = vx1 - sht->vx0;
+		by1 = vy1 - sht->vy0;
+		if(bx0<0){ bx0 = 0; }	/* 说明(1) */
+		if(by0<0){ by0 = 0; }
+		if(bx1>sht->bxsize){ bx1 = sht->bxsize; }		/* 说明(2) */
+		if(by1>sht->bysize){ by1 = sht->bysize; }
+		for(by = by0; by<by1; by++){
+			vy = sht->vy0+by;
+			for(bx = bx0; bx<bx1; bx++){
+				vx = sht->vx0+bx;
+				c = buf[by*sht->bxsize+bx];
+				if(c!=sht->col_inv){
+					vram[vy*ctl->xsize+vx] = c;
+				}
+			}
+		}
+	}
+	return ;
+}
+```
+
+改良的关键在于，bx在for语句中并不是在0到bxsize之间循环，而是在bx0到bx1之间循环（对于by也一样）。而bx0和bx1都是从刷新范围“倒推”求得的。倒推其实就是把公式变形转换了一 下，具体如下：
+vx = sht->vx0 + bx; → bx = vx - sht->vx0;
+
+计算vx0的坐标相当于bx中的哪个位置，然后把它作为bx0。其他的坐标处理方法也一样。
+
+这样算完以后，就该执行以上程序中说明(1)的地方了。这行代码用于处理刷新范围在图层外
+侧的情况。什么时候会出现这种情况呢？比如在sht_back中写入字符并进行刷新，而且刷新范围 的一部分被鼠标覆盖的情况
+
+程序中“说明(2)”部分所做的，是为了应对不同的重叠方式。
+
+第三种情况是完全不重叠的情况。例如，鼠标的图层往左移动直至不再重叠。此时当然完全不需要进行重复描绘，那么程序是否可以正常运行呢？ 利用倒推计算得出的bx0和bx1都是负值，在说明(1中，仅仅bx0被修正为0，而在说明(2) 中bx1没有被修正，还是负的。这样的话，for（bx = bx0;bx < bx1;bx++）这个语句里的循环条件bx < bx1 从最开就不成立，所以for语句中的命令得不到循环，这样就完全不会进行重复描绘了，很好
