@@ -177,8 +177,9 @@ struct TIMER{
 	unsigned char data;
 };
 struct TIMERCTL{
-	unsigned int count, next;
-	struct TIMER timer[MAX_TIMER];	
+	unsigned int count, next, using;/*变量using相当于struct SHTCTL中的top，它用于记录现在的定时器中有几个处于活动中。*/
+	struct TIMER *timers[MAX_TIMER];
+	struct TIMER timers0[MAX_TIMER];
 };
 extern struct TIMERCTL timerctl;
 void init_pit(void);

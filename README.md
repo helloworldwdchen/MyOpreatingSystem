@@ -51,3 +51,8 @@
 今天通过尽量减小刷新的区域，解决了当高速刷新图层时窗口闪烁的问题。
 
 <img src="day6/img.png" style="zoom:67%;" />
+
+第八天 完成基础定时器,基于定时器实现鼠标的闪烁
+
+<img src="day7/pic.png" style="zoom:67%;" />
+
