@@ -1,7 +1,7 @@
 #include "bootpack.h"
 
 #define FLAGS_OVERRUN	0x0001
-void fifo8_init(struct FIFO8 *fifo, int size, unsigned char *buf){
+void fifo32_init(struct FIFO32 *fifo, int size, int *buf){	/* FIFO缓冲区的初始化*/
 	fifo->size = size;
 	fifo->buf = buf;
 	fifo->free = size;
@@ -11,8 +11,8 @@ void fifo8_init(struct FIFO8 *fifo, int size, unsigned char *buf){
 	return ;
 }
 
-int fifo8_put(struct FIFO8 *fifo, unsigned char data){
-	if(fifo->free==0){
+int fifo32_put(struct FIFO32 *fifo, int data){	/*给FIFO发送数据并储存在FIFO中*/
+	if(fifo->free==0){		/*没有空余空间，溢出*/
 		fifo->flags|=FLAGS_OVERRUN;
 		return -1;
 	}
@@ -25,9 +25,9 @@ int fifo8_put(struct FIFO8 *fifo, unsigned char data){
 	return 0;
 }
 
-int fifo8_get(struct FIFO8 *fifo){
+int fifo32_get(struct FIFO32 *fifo){		/*从FIFO取得一个数据*/
 	int data;
-	if(fifo->free == fifo->size){
+	if(fifo->free == fifo->size){	/*当缓冲区为空的情况下返回-1*/
 		return -1;
 	}
 	data = fifo->buf[fifo->q];
@@ -39,6 +39,6 @@ int fifo8_get(struct FIFO8 *fifo){
 	return data;
 }
 
-int fifo8_status(struct FIFO8 *fifo){
+int fifo32_status(struct FIFO32 *fifo){		/*报告已经存储了多少数据*/
 	return fifo->size - fifo->free;
 }
