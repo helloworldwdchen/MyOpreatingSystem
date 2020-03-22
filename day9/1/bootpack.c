@@ -110,6 +110,7 @@ void HariMain(void){
 			} 
 			else if (512 <= i && i <= 767) { 
 				if (mouse_decode(&mdec, i - 512) != 0) {
+					/* 收集了3字节的数据，所以显示出来 */
 					sprintf(s, "[lcr %4d %4d]", mdec.x, mdec.y);
 					if ((mdec.btn & 0x01) != 0) {
 						s[1] = 'L';
@@ -138,6 +139,10 @@ void HariMain(void){
 					sprintf(s, "(%3d, %3d)", mx, my);
 					putfonts8_asc_sht(sht_back, 0, 0, COL8_FFFFFF, COL8_008484, s, 10);
 					sheet_slide(sht_mouse, mx, my);
+					if((mdec.btn&0x01)!=0){
+						/* 按下左键、移动sht_win */
+						sheet_slide(sht_win, mx - 80, my - 8);
+					}
 				}
 			} 
 			else if (i == 10) { 
