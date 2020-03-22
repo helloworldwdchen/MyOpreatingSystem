@@ -62,3 +62,8 @@
 
 <img src="day8/pic.png" style="zoom:60%;" />
 
+-   第十天 提高分辨率
+
+今天修改asmhead，提高了分辨路。增加了文本的输入，完成了窗口的移动。
+
+![](day9/pic.png)
